@@ -100,7 +100,7 @@ RepBookиспользует минималистичный интерфейс с
 
 ```bash
 git clone https://github.com/Enoti4Ka44/RepBook.git
-cd REPOSITORY
+cd RepBook
 ```
 
 ### 2. Установка зависимостей
