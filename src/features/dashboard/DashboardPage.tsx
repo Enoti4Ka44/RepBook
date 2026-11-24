@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
+
 import {
   ArrowRight,
   ArrowUpRight,
@@ -27,100 +28,49 @@ import {
   getWorkoutStats,
 } from "@/features/workouts/workout-utils";
 
-function startOfDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+import {
+  analyticsKeys,
+  getAnalyticsSummary,
+  getCurrentWeekPeriod,
+  getVolumeDynamics,
+  type VolumePoint,
+} from "@/features/progress/analytics-api";
+
+function sortNewest(a: Workout, b: Workout): number {
+  const first = Date.parse(a.createdAt);
+  const second = Date.parse(b.createdAt);
+
+  return (
+    (Number.isFinite(second) ? second : 0) -
+    (Number.isFinite(first) ? first : 0)
+  );
 }
 
-function getWeekStart(date: Date) {
-  const monday = startOfDay(date);
-  const day = (monday.getDay() + 6) % 7;
-  monday.setDate(monday.getDate() - day);
-  return monday;
-}
-
-function getFinishDate(workout: Workout) {
-  if (!workout.finishedAt) return null;
-
-  const date = new Date(workout.finishedAt);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function getDashboardData(workouts: Workout[], now: Date) {
-  const weekStart = getWeekStart(now);
-
-  const completed = workouts.filter(
-    (workout) => workout.status === "COMPLETED",
-  );
-
-  const thisWeek = completed.filter((workout) => {
-    const date = getFinishDate(workout);
-
-    return date !== null && date >= weekStart && date <= now;
-  });
-
-  const totalSets = thisWeek.reduce(
-    (sum, workout) => sum + getWorkoutStats(workout).completedSets,
-    0,
-  );
-
-  const totalVolume = thisWeek.reduce(
-    (sum, workout) => sum + getWorkoutStats(workout).volumeKg,
-    0,
-  );
-
-  const activity = Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(weekStart);
-    date.setDate(weekStart.getDate() + index);
-
-    const count = thisWeek.filter((workout) => {
-      const finished = getFinishDate(workout);
-
-      return (
-        finished !== null && startOfDay(finished).getTime() === date.getTime()
-      );
-    }).length;
-
-    return {
-      label: ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"][index],
-      count,
-    };
-  });
-
-  const sorted = [...workouts].sort((a, b) => {
-    const first = Date.parse(a.createdAt);
-    const second = Date.parse(b.createdAt);
-
-    return (
-      (Number.isFinite(second) ? second : 0) -
-      (Number.isFinite(first) ? first : 0)
-    );
-  });
+function getFeaturedWorkouts(workouts: Workout[]) {
+  const sorted = [...workouts].sort(sortNewest);
 
   const active = sorted.find((workout) => workout.status === "IN_PROGRESS");
 
   const planned = sorted.find((workout) => workout.status === "PLANNED");
 
-  const recent = [...completed]
+  const recent = sorted
+    .filter((workout) => workout.status === "COMPLETED")
     .sort((a, b) => {
-      const first = getFinishDate(a)?.getTime() ?? 0;
-      const second = getFinishDate(b)?.getTime() ?? 0;
-      return second - first;
+      const first = Date.parse(a.finishedAt ?? a.createdAt);
+
+      const second = Date.parse(b.finishedAt ?? b.createdAt);
+
+      return (
+        (Number.isFinite(second) ? second : 0) -
+        (Number.isFinite(first) ? first : 0)
+      );
     })
     .slice(0, 3);
 
-  return {
-    weekCount: thisWeek.length,
-    totalSets,
-    totalVolume,
-    activity,
-    active,
-    planned,
-    recent,
-    completed,
-  };
+  return { active, planned, recent };
 }
 
-function StatCard({
+function DashboardStat({
   label,
   value,
   unit,
@@ -132,77 +82,25 @@ function StatCard({
   icon: typeof Dumbbell;
 }) {
   return (
-    <SquircleCard className="flex min-h-39 flex-col justify-between gap-5">
-      <div className="flex items-center justify-between">
+    <SquircleCard className="flex min-h-36 flex-col justify-between gap-5">
+      <div className="flex items-center justify-between gap-2">
         <p className="text-xs font-semibold text-[#82768A]">{label}</p>
-        <Icon size={19} className="text-[#AA91B5]" />
+
+        <Icon size={20} className="text-[#AA91B5]" />
       </div>
 
       <div>
-        <span className="text-3xl font-extrabold tracking-tight tabular-nums sm:text-4xl">
+        <span className="text-3xl font-extrabold tracking-tight tabular-nums">
           {value}
         </span>
-        {unit && (
-          <span className="ml-1.5 text-xs font-medium text-[#82768A]">
-            {unit}
-          </span>
-        )}
+
+        {unit && <span className="ml-1 text-xs text-[#82768A]">{unit}</span>}
       </div>
     </SquircleCard>
   );
 }
 
-function ActivityChart({
-  activity,
-}: {
-  activity: { label: string; count: number }[];
-}) {
-  const maximum = Math.max(1, ...activity.map((day) => day.count));
-
-  return (
-    <SquircleCard className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-extrabold">Активность</h2>
-        <span className="text-xs text-[#82768A]">Эта неделя</span>
-      </div>
-
-      <div className="grid h-44 grid-cols-7 gap-2 sm:gap-4">
-        {activity.map((day, index) => {
-          const height = day.count
-            ? Math.max(12, (day.count / maximum) * 100)
-            : 4;
-
-          return (
-            <div
-              key={day.label}
-              className="flex min-w-0 flex-col items-center justify-end gap-3"
-            >
-              <div className="flex h-full w-full max-w-12 items-end">
-                <div
-                  role="img"
-                  aria-label={`${day.label}: ${day.count} тренировок`}
-                  title={`${day.count} тренировок`}
-                  className={`w-full rounded-t-[14px] transition-all ${
-                    day.count > 0
-                      ? index === 6
-                        ? "bg-[#EDBE65]"
-                        : "bg-[#AA91B5]"
-                      : "bg-[#EEE8F0]"
-                  }`}
-                  style={{ height: `${height}%` }}
-                />
-              </div>
-
-              <span className="text-[11px] text-[#82768A]">{day.label}</span>
-            </div>
-          );
-        })}
-      </div>
-    </SquircleCard>
-  );
-}
-
-function MainWorkoutCard({
+function FeaturedWorkout({
   active,
   planned,
 }: {
@@ -219,13 +117,15 @@ function MainWorkoutCard({
       >
         <div className="flex items-start justify-between">
           <div className="flex size-12 items-center justify-center rounded-2xl bg-white/10 text-[#EDBE65]">
-            <Dumbbell size={25} />
+            <Dumbbell size={24} />
           </div>
+
           <ArrowUpRight className="text-[#EDBE65]" />
         </div>
 
         <div>
           <p className="text-sm text-white/55">Готов к следующему шагу?</p>
+
           <h2 className="mt-2 text-2xl font-extrabold text-white">
             Создай тренировку
           </h2>
@@ -244,12 +144,12 @@ function MainWorkoutCard({
     );
   }
 
+  const stats = getWorkoutStats(selected);
+
   const href =
     selected.status === "IN_PROGRESS"
       ? `/workouts/${selected.id}/active`
       : `/workouts/${selected.id}`;
-
-  const stats = getWorkoutStats(selected);
 
   return (
     <SquircleCard
@@ -258,7 +158,7 @@ function MainWorkoutCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex size-12 items-center justify-center rounded-2xl bg-white/10 text-[#EDBE65]">
-          <Dumbbell size={25} />
+          <Dumbbell size={24} />
         </div>
 
         <span className="rounded-full bg-white/10 px-3 py-2 text-xs font-semibold text-white/80">
@@ -293,23 +193,125 @@ function MainWorkoutCard({
   );
 }
 
+function WeeklyActivity({
+  volume,
+  from,
+  to,
+}: {
+  volume: VolumePoint[];
+  from: string;
+  to: string;
+}) {
+  const values = new Map(
+    volume.map((point) => [point.date, point.workoutCount]),
+  );
+
+  const first = new Date(`${from}T12:00:00`);
+  const last = new Date(`${to}T12:00:00`);
+
+  const days: {
+    label: string;
+    date: string;
+    count: number;
+  }[] = [];
+
+  for (
+    let current = new Date(first);
+    current <= last;
+    current.setDate(current.getDate() + 1)
+  ) {
+    const key = [
+      current.getFullYear(),
+      String(current.getMonth() + 1).padStart(2, "0"),
+      String(current.getDate()).padStart(2, "0"),
+    ].join("-");
+
+    days.push({
+      label: ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"][current.getDay()],
+      date: key,
+      count: values.get(key) ?? 0,
+    });
+  }
+
+  const maximum = Math.max(1, ...days.map((item) => item.count));
+
+  return (
+    <SquircleCard className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-extrabold">Активность</h2>
+
+        <span className="text-xs text-[#82768A]">Эта неделя</span>
+      </div>
+
+      <div className="grid h-44 grid-cols-7 gap-2 sm:gap-4">
+        {days.map((day) => {
+          const height =
+            day.count === 0 ? 4 : Math.max(12, (day.count / maximum) * 100);
+
+          return (
+            <div
+              key={day.date}
+              className="flex min-w-0 flex-col items-center justify-end gap-3"
+            >
+              <div className="flex h-full w-full max-w-12 items-end">
+                <div
+                  role="img"
+                  aria-label={`${day.label}: ${day.count} тренировок`}
+                  title={`${day.count} тренировок`}
+                  className={`w-full rounded-t-[14px] ${
+                    day.count > 0 ? "bg-[#AA91B5]" : "bg-[#EEE8F0]"
+                  }`}
+                  style={{ height: `${height}%` }}
+                />
+              </div>
+
+              <span className="text-[11px] text-[#82768A]">{day.label}</span>
+            </div>
+          );
+        })}
+      </div>
+    </SquircleCard>
+  );
+}
+
 export function DashboardPage() {
+  const weekPeriod = getCurrentWeekPeriod();
+
   const workoutsQuery = useQuery({
     queryKey: workoutKeys.all,
     queryFn: getWorkouts,
+    refetchOnMount: "always",
   });
 
-  const now = new Date();
+  const summaryQuery = useQuery({
+    queryKey: analyticsKeys.summary(weekPeriod),
+    queryFn: () => getAnalyticsSummary(weekPeriod),
+    refetchOnMount: "always",
+  });
 
-  const data = getDashboardData(workoutsQuery.data ?? [], now);
+  const volumeQuery = useQuery({
+    queryKey: analyticsKeys.volume(weekPeriod, "DAY"),
+    queryFn: () => getVolumeDynamics(weekPeriod, "DAY"),
+    refetchOnMount: "always",
+  });
+
+  const loading =
+    workoutsQuery.isPending || summaryQuery.isPending || volumeQuery.isPending;
+
+  const error =
+    workoutsQuery.isError || summaryQuery.isError || volumeQuery.isError;
+
+  const featured = getFeaturedWorkouts(workoutsQuery.data ?? []);
+
+  const summary = summaryQuery.data;
 
   return (
-    <main className="px-4 py-7 sm:px-8 lg:px-10">
+    <main className="px-4 py-7 text-[#302C33] sm:px-8 lg:px-10">
       <div className="mx-auto max-w-6xl space-y-7">
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-[#927AA0]">
-              Твой прогресс
+              REPBOOK
             </p>
 
             <h1 className="mt-2 text-3xl font-extrabold tracking-tight sm:text-4xl">
@@ -332,22 +334,29 @@ export function DashboardPage() {
           </Button>
         </header>
 
-        {workoutsQuery.isPending ? (
+        {loading ? (
           <div className="space-y-4">
             <Skeleton className="h-58 rounded-[28px]" />
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid gap-3 sm:grid-cols-3">
               {[0, 1, 2].map((index) => (
-                <Skeleton key={index} className="h-40 rounded-[28px]" />
+                <Skeleton key={index} className="h-36 rounded-[28px]" />
               ))}
             </div>
+
+            <Skeleton className="h-48 rounded-[28px]" />
           </div>
-        ) : workoutsQuery.isError ? (
+        ) : error ? (
           <SquircleCard className="space-y-4 text-center">
-            <p className="font-bold">Не удалось загрузить данные</p>
+            <p className="font-bold">Не удалось загрузить главную страницу</p>
 
             <Button
-              onClick={() => void workoutsQuery.refetch()}
+              type="button"
+              onClick={() => {
+                void workoutsQuery.refetch();
+                void summaryQuery.refetch();
+                void volumeQuery.refetch();
+              }}
               className="cursor-pointer rounded-2xl"
             >
               Повторить
@@ -355,31 +364,38 @@ export function DashboardPage() {
           </SquircleCard>
         ) : (
           <>
-            <MainWorkoutCard active={data.active} planned={data.planned} />
+            <FeaturedWorkout
+              active={featured.active}
+              planned={featured.planned}
+            />
 
-            <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <StatCard
+            <section className="grid gap-3 sm:grid-cols-3">
+              <DashboardStat
                 label="Тренировки за неделю"
-                value={String(data.weekCount)}
+                value={String(summary?.workoutCount ?? 0)}
                 icon={Dumbbell}
               />
 
-              <StatCard
-                label="Выполненные подходы"
-                value={String(data.totalSets)}
+              <DashboardStat
+                label="Рабочие подходы"
+                value={String(summary?.setCount ?? 0)}
                 icon={CheckCircle2}
               />
 
-              <StatCard
-                label="Объём нагрузки"
-                value={formatVolume(data.totalVolume)}
+              <DashboardStat
+                label="Тоннаж за неделю"
+                value={formatVolume(summary?.totalTonnageKg ?? 0)}
                 unit="кг"
                 icon={TrendingUp}
               />
             </section>
 
             <section className="grid gap-4 xl:grid-cols-[1.15fr_1fr]">
-              <ActivityChart activity={data.activity} />
+              <WeeklyActivity
+                volume={volumeQuery.data ?? []}
+                from={weekPeriod.from}
+                to={weekPeriod.to}
+              />
 
               <SquircleCard className="space-y-5">
                 <div className="flex items-center justify-between gap-3">
@@ -395,7 +411,7 @@ export function DashboardPage() {
                   </Link>
                 </div>
 
-                {data.recent.length === 0 ? (
+                {featured.recent.length === 0 ? (
                   <div className="flex min-h-36 items-center justify-center text-center">
                     <p className="text-sm text-[#82768A]">
                       Завершённых тренировок пока нет.
@@ -403,7 +419,7 @@ export function DashboardPage() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {data.recent.map((workout) => {
+                    {featured.recent.map((workout) => {
                       const stats = getWorkoutStats(workout);
 
                       return (

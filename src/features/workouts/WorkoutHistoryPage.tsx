@@ -1,5 +1,6 @@
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
+
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -22,15 +23,31 @@ import {
 } from "./workout-utils";
 
 export function WorkoutHistoryPage() {
+  const navigate = useNavigate();
+
   const workoutsQuery = useQuery({
     queryKey: workoutKeys.all,
     queryFn: getWorkouts,
   });
 
+  // Возвращаемся на предыдущую страницу.
+  // Если историю открыли по прямой ссылке,
+  // используем безопасный маршрут по умолчанию.
+  function handleBack() {
+    const historyIndex = window.history.state?.idx;
+
+    if (typeof historyIndex === "number" && historyIndex > 0) {
+      navigate(-1);
+    } else {
+      navigate("/progress", { replace: true });
+    }
+  }
+
   const workouts = (workoutsQuery.data ?? [])
     .filter((workout) => workout.status === "COMPLETED")
     .sort((a, b) => {
       const first = Date.parse(a.finishedAt ?? a.createdAt);
+
       const second = Date.parse(b.finishedAt ?? b.createdAt);
 
       return (
@@ -42,17 +59,23 @@ export function WorkoutHistoryPage() {
   return (
     <main className="min-h-screen bg-[#F6F1F8] px-4 py-8 pb-24 text-[#302C33] sm:px-8">
       <div className="mx-auto max-w-5xl space-y-7">
+        {/* Навигация */}
         <header>
-          <Link
-            to="/workouts"
-            className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-[#82768A] hover:text-[#302C33]"
+          <button
+            type="button"
+            onClick={handleBack}
+            className="inline-flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2 text-sm font-semibold text-[#82768A] transition-colors hover:bg-[#EEE8F0] hover:text-[#302C33]"
           >
-            <ArrowLeft size={17} />
-            Мои тренировки
-          </Link>
+            <ArrowLeft size={18} />
+            Вернуться
+          </button>
 
-          <h1 className="mt-5 text-3xl font-extrabold tracking-tight sm:text-4xl">
-            История
+          <p className="mt-5 text-xs font-extrabold uppercase tracking-[0.18em] text-[#927AA0]">
+            REPBOOK / HISTORY
+          </p>
+
+          <h1 className="mt-2 text-3xl font-extrabold tracking-tight sm:text-4xl">
+            История тренировок
           </h1>
 
           <p className="mt-2 text-sm text-[#82768A]">
@@ -60,6 +83,7 @@ export function WorkoutHistoryPage() {
           </p>
         </header>
 
+        {/* Загрузка */}
         {workoutsQuery.isPending ? (
           <div className="grid gap-4 sm:grid-cols-2">
             {Array.from({ length: 4 }, (_, index) => (
@@ -69,14 +93,17 @@ export function WorkoutHistoryPage() {
         ) : workoutsQuery.isError ? (
           <SquircleCard className="space-y-4 text-center">
             <p className="font-bold">Не удалось загрузить историю</p>
+
             <Button
-              className="cursor-pointer rounded-2xl"
+              type="button"
               onClick={() => void workoutsQuery.refetch()}
+              className="cursor-pointer rounded-2xl bg-[#302C33] text-white hover:bg-[#48424B]"
             >
               Повторить
             </Button>
           </SquircleCard>
         ) : workouts.length === 0 ? (
+          /* Пустая история */
           <SquircleCard className="py-16 text-center">
             <div className="mx-auto flex size-16 items-center justify-center rounded-[24px] bg-[#F0E8F3] text-[#AA91B5]">
               <History size={30} />
@@ -90,17 +117,25 @@ export function WorkoutHistoryPage() {
 
             <Button
               asChild
-              className="mt-6 cursor-pointer rounded-2xl bg-[#EDBE65] px-6 text-[#302C33] hover:bg-[#E2AD50]"
+              className="mt-6 cursor-pointer rounded-2xl bg-[#EDBE65] px-6 font-bold text-[#302C33] hover:bg-[#E2AD50]"
             >
               <Link to="/workouts">К тренировкам</Link>
             </Button>
           </SquircleCard>
         ) : (
           <>
-            <p className="text-sm font-semibold text-[#82768A]">
-              Завершено: {workouts.length}
-            </p>
+            {/* Количество тренировок */}
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-[#82768A]">
+                Завершено: {workouts.length}
+              </p>
 
+              <span className="rounded-full bg-[#FFF2D6] px-3 py-1.5 text-xs font-bold text-[#A47A32]">
+                {workouts.length} тренировок
+              </span>
+            </div>
+
+            {/* Карточки истории */}
             <div className="grid gap-4 sm:grid-cols-2">
               {workouts.map((workout) => {
                 const stats = getWorkoutStats(workout);
@@ -113,11 +148,14 @@ export function WorkoutHistoryPage() {
                   >
                     <SquircleCard className="h-full space-y-5 transition-transform duration-200 group-hover:-translate-y-1">
                       <div className="flex items-start justify-between">
-                        <div className="flex size-12 items-center justify-center rounded-[18px] bg-[#EFE7F2] text-[#927AA0]">
+                        <div className="flex size-12 items-center justify-center rounded-[18px] bg-[#302C33] text-[#EDBE65]">
                           <Dumbbell size={23} />
                         </div>
 
-                        <ArrowUpRight size={20} className="text-[#AA91B5]" />
+                        <ArrowUpRight
+                          size={20}
+                          className="text-[#AA91B5] transition-colors group-hover:text-[#302C33]"
+                        />
                       </div>
 
                       <div>
@@ -127,6 +165,7 @@ export function WorkoutHistoryPage() {
 
                         <p className="mt-2 flex items-center gap-2 text-xs text-[#82768A]">
                           <CalendarDays size={14} />
+
                           {formatWorkoutDate(
                             workout.finishedAt ?? workout.createdAt,
                           )}
@@ -138,6 +177,7 @@ export function WorkoutHistoryPage() {
                           <p className="text-lg font-extrabold">
                             {stats.exerciseCount}
                           </p>
+
                           <p className="mt-1 text-xs text-[#82768A]">Упр.</p>
                         </div>
 
@@ -145,6 +185,7 @@ export function WorkoutHistoryPage() {
                           <p className="text-lg font-extrabold">
                             {formatDuration(stats.durationMinutes)}
                           </p>
+
                           <p className="mt-1 text-xs text-[#82768A]">Время</p>
                         </div>
 
@@ -152,6 +193,7 @@ export function WorkoutHistoryPage() {
                           <p className="text-lg font-extrabold">
                             {formatVolume(stats.volumeKg)}
                           </p>
+
                           <p className="mt-1 text-xs text-[#82768A]">
                             Объём, кг
                           </p>

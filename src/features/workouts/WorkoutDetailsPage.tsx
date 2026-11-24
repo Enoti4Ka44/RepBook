@@ -1,5 +1,6 @@
 import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
 import {
   ArrowLeft,
   ArrowRight,
@@ -20,11 +21,16 @@ import {
   getWorkout,
   startWorkout,
   workoutKeys,
-  type Workout,
   type WorkoutStatus,
 } from "./workouts-api";
 
-// Названия статусов
+import {
+  formatDuration,
+  formatVolume,
+  formatWorkoutDate,
+  getWorkoutStats,
+} from "./workout-utils";
+
 const statusLabels: Record<WorkoutStatus, string> = {
   PLANNED: "Запланирована",
   IN_PROGRESS: "В процессе",
@@ -32,82 +38,66 @@ const statusLabels: Record<WorkoutStatus, string> = {
   CANCELLED: "Отменена",
 };
 
-// Форматирование даты
-function formatDate(value?: string | null) {
-  if (!value) return "—";
+function StatItem({ value, label }: { value: string; label: string }) {
+  return (
+    <div>
+      <p className="text-2xl font-extrabold tabular-nums text-[#EDBE65]">
+        {value}
+      </p>
 
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "—";
-  }
-
-  return date.toLocaleDateString("ru-RU", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
-}
-
-// Форматирование продолжительности
-function formatDuration(startedAt?: string | null, finishedAt?: string | null) {
-  if (!startedAt || !finishedAt) return null;
-
-  const start = new Date(startedAt).getTime();
-  const finish = new Date(finishedAt).getTime();
-
-  if (!Number.isFinite(start) || !Number.isFinite(finish) || finish < start) {
-    return null;
-  }
-
-  const minutes = Math.floor((finish - start) / 60000);
-
-  if (minutes < 60) {
-    return `${minutes} мин`;
-  }
-
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-
-  return remainingMinutes > 0
-    ? `${hours} ч ${remainingMinutes} мин`
-    : `${hours} ч`;
-}
-
-// Количество выполненных подходов
-function getCompletedSets(workout: Workout) {
-  return (workout.exercises ?? []).reduce(
-    (total, exercise) =>
-      total + (exercise.sets ?? []).filter((set) => set.isCompleted).length,
-    0,
+      <p className="mt-1 text-xs text-white/55">{label}</p>
+    </div>
   );
 }
 
-// Общее количество подходов
-function getTotalSets(workout: Workout) {
-  return (workout.exercises ?? []).reduce(
-    (total, exercise) => total + (exercise.sets ?? []).length,
-    0,
-  );
-}
+function PageMessage({
+  title,
+  description,
+  onRetry,
+}: {
+  title: string;
+  description: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-[#F6F1F8] p-5">
+      <SquircleCard className="w-full max-w-md space-y-5 text-center">
+        <div className="mx-auto flex size-14 items-center justify-center rounded-[20px] bg-[#EFE7F2] text-[#8D75A0]">
+          <RotateCcw size={25} />
+        </div>
 
-// Общий тренировочный объём
-function getTotalVolume(workout: Workout) {
-  return (workout.exercises ?? []).reduce(
-    (total, exercise) =>
-      total +
-      (exercise.sets ?? []).reduce((sum, set) => {
-        if (!set.isCompleted) return sum;
+        <div>
+          <h1 className="text-xl font-extrabold text-[#302C33]">{title}</h1>
 
-        return sum + (set.weightKg ?? 0) * (set.reps ?? 0);
-      }, 0),
-    0,
+          <p className="mt-2 text-sm text-[#82768A]">{description}</p>
+        </div>
+
+        <div className="flex justify-center gap-3">
+          <Button
+            asChild
+            variant="outline"
+            className="cursor-pointer rounded-2xl"
+          >
+            <Link to="/workouts">Назад</Link>
+          </Button>
+
+          {onRetry && (
+            <Button
+              type="button"
+              onClick={onRetry}
+              className="cursor-pointer rounded-2xl bg-[#302C33] text-white hover:bg-[#49434C]"
+            >
+              Повторить
+            </Button>
+          )}
+        </div>
+      </SquircleCard>
+    </main>
   );
 }
 
 export function WorkoutDetailsPage() {
   const { id } = useParams();
-
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -115,14 +105,13 @@ export function WorkoutDetailsPage() {
 
   const validId = Number.isSafeInteger(workoutId) && workoutId > 0;
 
-  // Получение тренировки
   const workoutQuery = useQuery({
     queryKey: workoutKeys.detail(workoutId),
     queryFn: () => getWorkout(workoutId),
     enabled: validId,
+    refetchOnMount: "always",
   });
 
-  // Запуск тренировки
   const startMutation = useMutation({
     mutationFn: () => startWorkout(workoutId),
 
@@ -137,9 +126,6 @@ export function WorkoutDetailsPage() {
     },
   });
 
-  const workout = workoutQuery.data;
-
-  // Ошибочный ID
   if (!validId) {
     return (
       <PageMessage
@@ -149,7 +135,6 @@ export function WorkoutDetailsPage() {
     );
   }
 
-  // Загрузка
   if (workoutQuery.isPending) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#F6F1F8]">
@@ -162,7 +147,8 @@ export function WorkoutDetailsPage() {
     );
   }
 
-  // Ошибка сервера
+  const workout = workoutQuery.data;
+
   if (workoutQuery.isError || !workout) {
     return (
       <PageMessage
@@ -174,24 +160,20 @@ export function WorkoutDetailsPage() {
   }
 
   const exercises = workout.exercises ?? [];
-
-  const completedSets = getCompletedSets(workout);
-  const totalSets = getTotalSets(workout);
-  const totalVolume = getTotalVolume(workout);
+  const stats = getWorkoutStats(workout);
 
   const progress =
-    totalSets > 0 ? Math.round((completedSets / totalSets) * 100) : 0;
-
-  const duration = formatDuration(workout.startedAt, workout.finishedAt);
+    stats.totalSets > 0
+      ? Math.round((stats.completedSets / stats.totalSets) * 100)
+      : 0;
 
   return (
     <main className="min-h-screen bg-[#F6F1F8] px-4 py-7 pb-20 text-[#302C33] sm:px-8">
       <div className="mx-auto max-w-3xl space-y-6">
-        {/* Навигация */}
         <header className="flex items-center justify-between">
           <Link
             to="/workouts"
-            className="flex items-center gap-2 text-sm font-semibold text-[#82768A] transition-colors hover:text-[#302C33]"
+            className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-[#82768A] transition-colors hover:text-[#302C33]"
           >
             <ArrowLeft size={18} />
             Мои тренировки
@@ -202,9 +184,8 @@ export function WorkoutDetailsPage() {
           </span>
         </header>
 
-        {/* Заголовок */}
         <section>
-          <div className="mb-3 flex items-center gap-2">
+          <div className="mb-3">
             <span className="rounded-full bg-[#E9DFEC] px-3 py-1.5 text-xs font-bold text-[#806B8E]">
               {statusLabels[workout.status]}
             </span>
@@ -217,19 +198,18 @@ export function WorkoutDetailsPage() {
           <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-[#82768A]">
             <span className="flex items-center gap-2">
               <CalendarDays size={16} />
-              {formatDate(workout.createdAt)}
+              {formatWorkoutDate(workout.createdAt)}
             </span>
 
-            {duration && (
+            {stats.durationMinutes !== null && (
               <span className="flex items-center gap-2">
                 <Clock3 size={16} />
-                {duration}
+                {formatDuration(stats.durationMinutes)}
               </span>
             )}
           </div>
         </section>
 
-        {/* Редактирование запланированной тренировки */}
         {workout.status === "PLANNED" && (
           <Link
             to={`/workouts/${workout.id}/edit`}
@@ -240,7 +220,6 @@ export function WorkoutDetailsPage() {
           </Link>
         )}
 
-        {/* Главная карточка */}
         <SquircleCard variant="dark" className="space-y-6">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -264,24 +243,23 @@ export function WorkoutDetailsPage() {
             </div>
           </div>
 
-          {/* Статистика */}
           <div className="grid grid-cols-3 gap-3">
-            <StatItem value={String(exercises.length)} label="Упражнений" />
+            <StatItem value={String(stats.exerciseCount)} label="Упражнений" />
 
-            <StatItem value={String(totalSets)} label="Подходов" />
+            <StatItem value={String(stats.totalSets)} label="Подходов" />
 
             <StatItem value={`${progress}%`} label="Прогресс" />
           </div>
 
-          {/* Прогресс */}
           <div className="h-2 overflow-hidden rounded-full bg-white/15">
             <div
               className="h-full rounded-full bg-[#EDBE65] transition-all"
-              style={{ width: `${progress}%` }}
+              style={{
+                width: `${progress}%`,
+              }}
             />
           </div>
 
-          {/* Кнопки управления */}
           {workout.status === "PLANNED" && (
             <div className="space-y-3">
               <Button
@@ -323,22 +301,35 @@ export function WorkoutDetailsPage() {
               </Link>
             </Button>
           )}
+
+          {workout.status === "COMPLETED" && (
+            <Button
+              asChild
+              className="h-12 w-full cursor-pointer rounded-2xl bg-[#EDBE65] font-bold text-[#302C33] hover:bg-[#E2AD50]"
+            >
+              <Link to={`/workouts/${workout.id}/summary`}>
+                Посмотреть итоги
+                <ArrowRight size={17} />
+              </Link>
+            </Button>
+          )}
         </SquircleCard>
 
-        {/* Результаты завершённой тренировки */}
         {workout.status === "COMPLETED" && (
           <div className="grid grid-cols-2 gap-4">
             <SquircleCard>
-              <p className="text-sm text-[#82768A]">Выполнено подходов</p>
+              <p className="text-sm text-[#82768A]">Рабочих подходов</p>
 
-              <p className="mt-3 text-3xl font-extrabold">{completedSets}</p>
+              <p className="mt-3 text-3xl font-extrabold">
+                {stats.completedWorkSets}
+              </p>
             </SquircleCard>
 
             <SquircleCard>
-              <p className="text-sm text-[#82768A]">Объём нагрузки</p>
+              <p className="text-sm text-[#82768A]">Тоннаж</p>
 
               <p className="mt-3 text-3xl font-extrabold">
-                {totalVolume.toLocaleString("ru-RU")}
+                {formatVolume(stats.volumeKg)}
                 <span className="ml-1 text-sm font-medium text-[#82768A]">
                   кг
                 </span>
@@ -347,7 +338,6 @@ export function WorkoutDetailsPage() {
           </div>
         )}
 
-        {/* Заметки */}
         {workout.notes && (
           <SquircleCard>
             <p className="text-xs font-bold uppercase tracking-wide text-[#AA91B5]">
@@ -360,7 +350,6 @@ export function WorkoutDetailsPage() {
           </SquircleCard>
         )}
 
-        {/* Упражнения */}
         <section className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-extrabold">Упражнения</h2>
@@ -397,7 +386,10 @@ export function WorkoutDetailsPage() {
                   </div>
                 </div>
 
-                {/* Подходы */}
+                {item.notes && (
+                  <p className="text-xs text-[#82768A]">{item.notes}</p>
+                )}
+
                 <div className="space-y-2">
                   {(item.sets ?? []).map((set) => (
                     <div
@@ -434,7 +426,7 @@ export function WorkoutDetailsPage() {
                         </div>
                       </div>
 
-                      <p className="text-sm font-bold tabular-nums">
+                      <p className="text-right text-sm font-bold tabular-nums">
                         {set.isCompleted
                           ? (set.weightKg ?? set.plannedWeightKg ?? 0)
                           : (set.plannedWeightKg ?? 0)}
@@ -450,75 +442,7 @@ export function WorkoutDetailsPage() {
             ))
           )}
         </section>
-
-        {/* Возврат */}
-        <Link
-          to="/workouts"
-          className="flex cursor-pointer items-center justify-center gap-2 py-4 text-sm font-semibold text-[#82768A] transition-colors hover:text-[#302C33]"
-        >
-          <ArrowLeft size={17} />К списку тренировок
-        </Link>
       </div>
-    </main>
-  );
-}
-
-// Статистика внутри тёмной карточки
-function StatItem({ value, label }: { value: string; label: string }) {
-  return (
-    <div>
-      <p className="text-2xl font-extrabold tabular-nums text-[#EDBE65]">
-        {value}
-      </p>
-
-      <p className="mt-1 text-xs text-white/55">{label}</p>
-    </div>
-  );
-}
-
-// Экран ошибки
-function PageMessage({
-  title,
-  description,
-  onRetry,
-}: {
-  title: string;
-  description: string;
-  onRetry?: () => void;
-}) {
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-[#F6F1F8] p-5">
-      <SquircleCard className="w-full max-w-md space-y-5 text-center">
-        <div className="mx-auto flex size-14 items-center justify-center rounded-[20px] bg-[#EFE7F2] text-[#8D75A0]">
-          <RotateCcw size={25} />
-        </div>
-
-        <div>
-          <h1 className="text-xl font-extrabold">{title}</h1>
-
-          <p className="mt-2 text-sm text-[#82768A]">{description}</p>
-        </div>
-
-        <div className="flex justify-center gap-3">
-          <Button
-            asChild
-            variant="outline"
-            className="cursor-pointer rounded-2xl"
-          >
-            <Link to="/workouts">Назад</Link>
-          </Button>
-
-          {onRetry && (
-            <Button
-              type="button"
-              onClick={onRetry}
-              className="cursor-pointer rounded-2xl bg-[#302C33] text-white hover:bg-[#49434C]"
-            >
-              Повторить
-            </Button>
-          )}
-        </div>
-      </SquircleCard>
     </main>
   );
 }

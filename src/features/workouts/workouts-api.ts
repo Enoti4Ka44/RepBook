@@ -1,3 +1,4 @@
+
 import { api } from "@/lib/api";
 import type { Exercise } from "@/features/exercises/exercises-api";
 
@@ -41,17 +42,87 @@ export interface Workout {
   exercises: WorkoutExercise[];
 }
 
-export interface CreateWorkoutExercise {
-  exerciseId: number;
+// План одного подхода
+export interface SetPlanPayload {
+  plannedWeightKg?: number;
+  plannedReps?: number;
+  isWarmup?: boolean;
+  restSeconds?: number;
   notes?: string;
-  plannedSets: number;
-  plannedReps: number;
-  plannedWeightKg: number;
 }
+
+// Сервер принимает либо одинаковые подходы,
+// либо массив индивидуальных подходов.
+export type CreateWorkoutExercise =
+  | {
+      exerciseId: number;
+      notes?: string;
+      plannedSets: number;
+      plannedReps?: number;
+      plannedWeightKg?: number;
+      sets?: never;
+    }
+  | {
+      exerciseId: number;
+      notes?: string;
+      sets: SetPlanPayload[];
+      plannedSets?: never;
+      plannedReps?: never;
+      plannedWeightKg?: never;
+    };
+
+// Используется при добавлении упражнения
+export type AddExercisePayload = CreateWorkoutExercise;
 
 export interface CreateWorkoutPayload {
   notes?: string;
+  bodyWeightKg?: number;
   exercises: CreateWorkoutExercise[];
+}
+
+export interface UpdateWorkoutPayload {
+  notes?: string;
+  bodyWeightKg?: number;
+  mood?: number;
+}
+
+export interface UpdateExercisePlanPayload {
+  notes?: string;
+  sets?: SetPlanPayload[];
+  plannedSets?: number;
+  plannedReps?: number;
+  plannedWeightKg?: number;
+}
+
+export interface UpdateSetPayload {
+  setNumber?: number;
+  plannedWeightKg?: number;
+  plannedReps?: number;
+  weightKg?: number;
+  reps?: number;
+  rir?: number;
+  restSeconds?: number;
+  isCompleted?: boolean;
+  isWarmup?: boolean;
+  notes?: string;
+}
+
+export interface CreateSetPayload {
+  setNumber?: number;
+  plannedWeightKg?: number;
+  plannedReps?: number;
+  weightKg?: number;
+  reps?: number;
+  rir?: number;
+  restSeconds?: number;
+  isWarmup?: boolean;
+  notes?: string;
+}
+
+export interface FinishWorkoutPayload {
+  mood?: number;
+  bodyWeightKg?: number;
+  notes?: string;
 }
 
 export const workoutKeys = {
@@ -62,11 +133,8 @@ export const workoutKeys = {
 export async function getWorkouts(): Promise<Workout[]> {
   const { data } = await api.get<Workout[]>("/workouts");
 
-  // Swagger описывает список неоднозначно.
   if (!Array.isArray(data)) {
-    throw new Error(
-      "GET /workouts: ожидался массив тренировок"
-    );
+    throw new Error("GET /workouts: ожидался массив");
   }
 
   return data;
@@ -93,122 +161,70 @@ export async function createWorkout(
   return data;
 }
 
-export async function deleteWorkout(
-  id: number
-): Promise<void> {
-  await api.delete(`/workouts/${id}`);
-}
-
-
-
-export interface UpdateSetPayload {
-  plannedWeightKg?: number;
-  plannedReps?: number;
-  weightKg?: number;
-  reps?: number;
-  rir?: number;
-  restSeconds?: number;
-  isCompleted?: boolean;
-  isWarmup?: boolean;
-  notes?: string;
-}
-
-export interface CreateSetPayload {
-  plannedWeightKg?: number;
-  plannedReps?: number;
-  weightKg?: number;
-  reps?: number;
-  rir?: number;
-  restSeconds?: number;
-  isWarmup?: boolean;
-  notes?: string;
-}
-
-export interface FinishWorkoutPayload {
-  mood?: number;
-  bodyWeightKg?: number;
-  notes?: string;
-}
-
-export async function startWorkout(id: number) {
-  const { data } = await api.post<Workout>(
-    `/workouts/${id}/start`
-  );
-  return data;
-}
-
-export async function finishWorkout(
+export async function updateWorkout(
   id: number,
-  payload: FinishWorkoutPayload
-) {
-  const { data } = await api.post<Workout>(
-    `/workouts/${id}/finish`,
+  payload: UpdateWorkoutPayload
+): Promise<Workout> {
+  const { data } = await api.patch<Workout>(
+    `/workouts/${id}`,
     payload
   );
+
   return data;
-}
-
-export async function cancelWorkout(id: number) {
-  const { data } = await api.post<Workout>(
-    `/workouts/${id}/cancel`
-  );
-  return data;
-}
-
-export async function updateWorkoutSet(
-  workoutId: number,
-  setId: number,
-  payload: UpdateSetPayload
-): Promise<WorkoutSet> {
-  const { data } = await api.patch<WorkoutSet>(
-    `/workouts/${workoutId}/sets/${setId}`,
-    payload
-  );
-  return data;
-}
-
-export async function addWorkoutSet(
-  workoutId: number,
-  workoutExerciseId: number,
-  payload: CreateSetPayload
-): Promise<WorkoutSet> {
-  const { data } = await api.post<WorkoutSet>(
-    `/workouts/${workoutId}/exercises/${workoutExerciseId}/sets`,
-    payload
-  );
-  return data;
-}
-
-
-export interface SetPlanPayload {
-  plannedWeightKg?: number;
-  plannedReps?: number;
-  isWarmup?: boolean;
-  restSeconds?: number;
-  notes?: string;
-}
-
-export interface UpdateExercisePlanPayload {
-  notes?: string;
-  sets: SetPlanPayload[];
-}
-
-export interface AddExercisePayload {
-  exerciseId: number;
-  notes?: string;
-  plannedSets?: number;
-  plannedReps?: number;
-  plannedWeightKg?: number;
-  sets?: SetPlanPayload[];
 }
 
 export async function updateWorkoutNotes(
   workoutId: number,
   notes: string
 ): Promise<Workout> {
-  const { data } = await api.patch<Workout>(
-    `/workouts/${workoutId}`,
-    { notes }
+  return updateWorkout(workoutId, { notes });
+}
+
+export async function deleteWorkout(
+  id: number
+): Promise<void> {
+  await api.delete(`/workouts/${id}`);
+}
+
+export async function startWorkout(
+  id: number
+): Promise<Workout> {
+  const { data } = await api.post<Workout>(
+    `/workouts/${id}/start`
+  );
+
+  return data;
+}
+
+export async function finishWorkout(
+  id: number,
+  payload: FinishWorkoutPayload
+): Promise<Workout> {
+  const { data } = await api.post<Workout>(
+    `/workouts/${id}/finish`,
+    payload
+  );
+
+  return data;
+}
+
+export async function cancelWorkout(
+  id: number
+): Promise<Workout> {
+  const { data } = await api.post<Workout>(
+    `/workouts/${id}/cancel`
+  );
+
+  return data;
+}
+
+export async function addExerciseToWorkout(
+  workoutId: number,
+  payload: AddExercisePayload
+): Promise<WorkoutExercise> {
+  const { data } = await api.post<WorkoutExercise>(
+    `/workouts/${workoutId}/exercises`,
+    payload
   );
 
   return data;
@@ -227,18 +243,6 @@ export async function updateExercisePlan(
   return data;
 }
 
-export async function addExerciseToWorkout(
-  workoutId: number,
-  payload: AddExercisePayload
-): Promise<WorkoutExercise> {
-  const { data } = await api.post<WorkoutExercise>(
-    `/workouts/${workoutId}/exercises`,
-    payload
-  );
-
-  return data;
-}
-
 export async function removeExerciseFromWorkout(
   workoutId: number,
   workoutExerciseId: number
@@ -248,6 +252,31 @@ export async function removeExerciseFromWorkout(
   );
 }
 
+export async function addWorkoutSet(
+  workoutId: number,
+  workoutExerciseId: number,
+  payload: CreateSetPayload
+): Promise<WorkoutSet> {
+  const { data } = await api.post<WorkoutSet>(
+    `/workouts/${workoutId}/exercises/${workoutExerciseId}/sets`,
+    payload
+  );
+
+  return data;
+}
+
+export async function updateWorkoutSet(
+  workoutId: number,
+  setId: number,
+  payload: UpdateSetPayload
+): Promise<WorkoutSet> {
+  const { data } = await api.patch<WorkoutSet>(
+    `/workouts/${workoutId}/sets/${setId}`,
+    payload
+  );
+
+  return data;
+}
 
 export async function deleteWorkoutSet(
   workoutId: number,
